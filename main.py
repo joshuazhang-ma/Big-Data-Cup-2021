@@ -19,8 +19,10 @@ RW_Y = [64, 65]
 ZN_DEF_X = 75
 ZN_OFF_X = 125
 
-#### Variables
+# Variables #####
 data = None
+
+# Data Wrangling Functions #####
 
 def cate_zone(x_coor, team_identity, period):
     if (team_identity=="Home Team" and period != 2) or (team_identity=="Away Team" and period == 2):
@@ -75,7 +77,12 @@ def std_coor(data):
     return data
 
 def cte_id(data):
+    # Old way, simple but effective, does not reset id for each new game. Cannot help with calculating time elapsed team event
     data['event_id'] = data.index + 1
+    group_data = data.groupby('game_date')
+    for name, group in group_data:
+        group = group.reset_index()
+        group['event_id'] = group.index + 1
 
     return data
 
@@ -101,15 +108,26 @@ def cte_time_remaining(data):
 
     return data
 
-def cte_timeElapsed_team_event(index, row, data):
-    # Given a game, period, and team, calculate the amount of seconds since their last event.
-    time = 0
-    # First subset the data based on the game, period and team of the row
-    
+def cte_timeElapsed_team_event(data):
+    data['secLastEvent'] = data.apply(lambda row: helper_cte_timeElapsed_team_event(row['Time_Remaining'], row['Period'], row['game_date'], row['TeamIdentity'], row['event_id'], data), axis=1)
 
-    return time
+    return data
 
-def manpower_state(for_players, against_players):
+def helper_cte_timeElapsed_team_event(event_time, event_period, event_game_date, team_identity, event_id, data):
+    try:
+        period_data = data.loc[(data['game_date'] == event_game_date) & (data['Period'] == event_period) & (data['TeamIdentity'] == team_identity) & (data['event_id'] < event_id),]
+        prev_event_time = period_data.iloc[-1]['Time_Remaining']
+    except:
+        return -1
+
+    return prev_event_time - event_time
+
+def cte_manpower(data):
+    data['Manpower'] = data.apply(lambda row: helper_manpower_state(row['Home_Team_Skaters'], row['Away_Team_Skaters']), axis=1)
+
+    return data
+
+def helper_manpower_state(for_players, against_players):
     if for_players > against_players:
         state = "Advantage"
     elif for_players < against_players:
@@ -133,24 +151,22 @@ def score_state(Score_Differential):
 
     return state
 
+# Analysis Functions #####
+
 def initiation():
     data = pd.read_csv("C:\\Users\\CLZ\\Documents\\GitHub\\Big-Data-Cup-2021\\hackathon_womens.csv")
     data.columns = data.columns.str.replace(" ", "_")
 
+    # Reduced data rows for testing purposes.
+    # data = data.iloc[0:50]
+
     data = cte_time_remaining(data)
-    print(data.head(10))
     data = cte_id(data)
-    print(data.head(10))
     data = cte_team_identity(data)
     data = std_coor(data)
     data = cte_score_diff(data)
-    print(data.head(10))
-
-    # convert time left to time remaining in seconds
-
-    time_remaining = data['Clock']
-    split_TR = time_remaining.str.split(":")
-    data['Time Remaining'] = [int(x[0])*60+int(x[1]) for x in split_TR]
+    data = cte_timeElapsed_team_event(data)
+    data = cte_manpower(data)
 
     # define method of zone entry
 
@@ -161,7 +177,8 @@ def initiation():
 
     return data
 
-def zoneEntry(data):
+# Return series of events from acquiring posession to zone entry
+def slc_zoneEntry(data):
     POSITIVE_SAME_TEAM = ["Shot", "Goal", "Play", "Puck Recovery"]
     NEGATIVE_SAME_TEAM = ["Incomplete Play", "Penalty Taken"]
 
@@ -184,10 +201,36 @@ def zoneEntry(data):
 
     return
 
-def main():
-    data = initiation()
+# Return series of events between face-off to goal
+def slc_scoringSequence(data):
+    output_list = []
+    # get list of indices of goals
+    goal_indices = data.index[data['Event'] == 'Goal'].tolist()
+    for index in goal_indices:
+        events_list = get_slice(data, "Faceoff Win", index)
+        all_events = events_list['Event']
+        scoring_team_events = events_list.loc[events_list['Team'] == events_list[index]['Team']]['Event']
+        output_list.append(list(events_list))
+        output_df = pd.DataFrame(output_list)
+        output_df.to_csv("scoring_sequence.csv")
 
-    zoneEntry(data)
+    return
+
+def get_slice(data, starting_event, ending_event_index):
+    try:
+        starting_event_index_list = data.index[data['Event'] == starting_event].tolist()
+        starting_event_index = max(filter(lambda i: i < ending_event_index, starting_event_index_list))
+    except:
+        print("No slice found.")
+        return pd.DataFrame()
+
+    return data.iloc[starting_event_index:ending_event_index]
+
+def main():
+    # data = initiation()
+
+    data = pd.read_csv("C:\\Users\\CLZ\\Documents\\GitHub\\Big-Data-Cup-2021\\hackathon_womens_amended.csv")
+    slc_scoringSequence(data)
 
     return
 
