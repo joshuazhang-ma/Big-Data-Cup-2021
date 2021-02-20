@@ -1,5 +1,5 @@
 import pandas as pd
-import os
+import numpy as np
 
 #### CONSTANTS
 MIN_X = 0
@@ -74,6 +74,8 @@ def std_coor(data):
     data.loc[data['TeamIdentity'] == "Away Team", 'std_Y'] = 85 - data['Y_Coordinate']
     data.loc[data['TeamIdentity'] == "Away Team", 'std_Y_2'] = 85 - data['Y_Coordinate_2']
 
+    data.loc[:, 'euc_dist'] = np.sqrt((data['std_X_2'] - data['std_X']) ** 2 + (data['std_Y_2'] - data['std_Y']) ** 2)
+
     return data
 
 def cte_id(data):
@@ -109,7 +111,7 @@ def cte_time_remaining(data):
     return data
 
 def cte_timeElapsed_team_event(data):
-    data['secLastEvent'] = data.apply(lambda row: helper_cte_timeElapsed_team_event(row['Time_Remaining'], row['Period'], row['game_date'], row['TeamIdentity'], row['event_id'], data), axis=1)
+    data[('secLastTeamEvent', 'secLastAnyEvent')] = data.apply(lambda row: helper_cte_timeElapsed_team_event(row['Time_Remaining'], row['Period'], row['game_date'], row['TeamIdentity'], row['event_id'], data), axis=1)
 
     return data
 
@@ -117,10 +119,13 @@ def helper_cte_timeElapsed_team_event(event_time, event_period, event_game_date,
     try:
         period_data = data.loc[(data['game_date'] == event_game_date) & (data['Period'] == event_period) & (data['TeamIdentity'] == team_identity) & (data['event_id'] < event_id),]
         prev_event_time = period_data.iloc[-1]['Time_Remaining']
+
+        any_period_data = data.loc[(data['game_date'] == event_game_date) & (data['Period'] == event_period) & (data['event_id'] < event_id),]
+        any_prev_event_time = any_period_data.iloc[-1]['Time_Remaining']
     except:
         return -1
 
-    return prev_event_time - event_time
+    return [prev_event_time - event_time, any_prev_event_time - event_time]
 
 def cte_manpower(data):
     data['Manpower'] = data.apply(lambda row: helper_manpower_state(row['Home_Team_Skaters'], row['Away_Team_Skaters']), axis=1)
@@ -168,12 +173,7 @@ def initiation():
     data = cte_timeElapsed_team_event(data)
     data = cte_manpower(data)
 
-    # define method of zone entry
-
-    ### The categorization already exists in the provided dataset.
-
-    # categorize zone of coordinates of an event
-
+    data.to_csv('hackathon_womens_amended.csv')
 
     return data
 
@@ -227,10 +227,10 @@ def get_slice(data, starting_event, ending_event_index):
     return data.iloc[starting_event_index:ending_event_index]
 
 def main():
-    # data = initiation()
+    data = initiation()
 
-    data = pd.read_csv("C:\\Users\\CLZ\\Documents\\GitHub\\Big-Data-Cup-2021\\hackathon_womens_amended.csv")
-    slc_scoringSequence(data)
+    # data = pd.read_csv("C:\\Users\\CLZ\\Documents\\GitHub\\Big-Data-Cup-2021\\hackathon_womens_amended.csv")
+    # slc_scoringSequence(data)
 
     return
 
