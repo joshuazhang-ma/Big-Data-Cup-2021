@@ -23,25 +23,6 @@ ZN_OFF_X = 125
 data = None
 
 # Data Wrangling Functions #####
-
-def cate_zone(x_coor, team_identity, period):
-    if (team_identity=="Home Team" and period != 2) or (team_identity=="Away Team" and period == 2):
-        if x_coor < 75:
-            categorization = "Defensive Zone"
-        elif x_coor < 125:
-            categorization = "Neutral Zone"
-        else:
-            categorization = "Offensive Zone"
-    else:
-        if x_coor < 75:
-            categorization = "Offensive Zone"
-        elif x_coor < 125:
-            categorization = "Neutral Zone"
-        else:
-            categorization = "Defensive Zone"
-
-    return categorization
-
 def side_zone(y_coor, team_identity, period):
     if (team_identity=="Home Team" and period != 2) or (team_identity=="Away Team" and period == 2):
         if y_coor <= 20:
@@ -79,12 +60,12 @@ def std_coor(data):
     return data
 
 def cte_id(data):
-    # Old way, simple but effective, does not reset id for each new game. Cannot help with calculating time elapsed team event
-    data['event_id'] = data.index + 1
-    group_data = data.groupby('game_date')
-    for name, group in group_data:
-        group = group.reset_index()
-        group['event_id'] = group.index + 1
+    data['event_id'] = 0
+    game_start_index_list = data.loc[(data['Period'] == 1) & (data['Time_Remaining'] == 1200),].index.tolist()
+    game_start_index_list.append(len(data)-1)
+    for index in range(len(game_start_index_list)-1):
+        if (index != len(data)-1):
+            data.loc[game_start_index_list[index]:game_start_index_list[index+1]-1, 'event_id'] = range(game_start_index_list[index+1] - game_start_index_list[index])
 
     return data
 
@@ -105,13 +86,20 @@ def cte_score_diff(data):
 
     return data
 
+def cte_posession_change(data):
+    data['Posession_Change'] = 'Yes'
+    data.loc[data['secLastTeamEvent'] == data['secLastAnyEvent'], 'Posession_Change'] = 'No'
+
+    return data
+
 def cte_time_remaining(data):
     data['Time_Remaining'] = [int(x.split(":")[0])*60 + int(x.split(":")[1]) for x in data['Clock']]
 
     return data
 
 def cte_timeElapsed_team_event(data):
-    data[('secLastTeamEvent', 'secLastAnyEvent')] = data.apply(lambda row: helper_cte_timeElapsed_team_event(row['Time_Remaining'], row['Period'], row['game_date'], row['TeamIdentity'], row['event_id'], data), axis=1)
+    data['timeElapsed'] = data.apply(lambda row: helper_cte_timeElapsed_team_event(row['Time_Remaining'], row['Period'], row['game_date'], row['TeamIdentity'], row['event_id'], data), axis=1)
+    data[['secLastTeamEvent', 'secLastAnyEvent']] = pd.DataFrame(data['timeElapsed'].tolist(), index=data.index)
 
     return data
 
@@ -123,22 +111,30 @@ def helper_cte_timeElapsed_team_event(event_time, event_period, event_game_date,
         any_period_data = data.loc[(data['game_date'] == event_game_date) & (data['Period'] == event_period) & (data['event_id'] < event_id),]
         any_prev_event_time = any_period_data.iloc[-1]['Time_Remaining']
     except:
-        return -1
+        return [-1,-1]
 
     return [prev_event_time - event_time, any_prev_event_time - event_time]
 
 def cte_manpower(data):
-    data['Manpower'] = data.apply(lambda row: helper_manpower_state(row['Home_Team_Skaters'], row['Away_Team_Skaters']), axis=1)
+    data['Manpower'] = data.apply(lambda row: helper_manpower_state(row['Home_Team_Skaters'], row['Away_Team_Skaters'], row['TeamIdentity']), axis=1)
 
     return data
 
-def helper_manpower_state(for_players, against_players):
-    if for_players > against_players:
-        state = "Advantage"
-    elif for_players < against_players:
-        state = "Shorthanded"
+def helper_manpower_state(for_players, against_players, eventing_team):
+    if eventing_team == "Home Team":
+        if for_players > against_players:
+            state = "Advantage"
+        elif for_players < against_players:
+            state = "Shorthanded"
+        else:
+            state = "Even"
     else:
-        state = "Even"
+        if for_players > against_players:
+            state = "Shorthanded"
+        elif for_players < against_players:
+            state = "Advantage"
+        else:
+            state = "Even"
 
     return state
 
@@ -159,7 +155,7 @@ def score_state(Score_Differential):
 # Analysis Functions #####
 
 def initiation():
-    data = pd.read_csv("C:\\Users\\CLZ\\Documents\\GitHub\\Big-Data-Cup-2021\\hackathon_womens.csv")
+    data = pd.read_csv("C:\\Users\\CLZ\\Documents\\GitHub\\Big-Data-Cup-2021\\hackathon_nwhl.csv")
     data.columns = data.columns.str.replace(" ", "_")
 
     # Reduced data rows for testing purposes.
@@ -172,8 +168,9 @@ def initiation():
     data = cte_score_diff(data)
     data = cte_timeElapsed_team_event(data)
     data = cte_manpower(data)
+    data = cte_posession_change(data)
 
-    data.to_csv('hackathon_womens_amended.csv')
+    data.to_csv('hackathon_nwhl_amended.csv', index=False)
 
     return data
 
